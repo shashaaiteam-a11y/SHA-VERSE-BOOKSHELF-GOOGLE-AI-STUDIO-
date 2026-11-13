@@ -1,0 +1,94 @@
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { User, Session } from '@supabase/supabase-js';
+import { supabase } from '@/integrations/supabase/client';
+import { useNavigate } from 'react-router-dom';
+import { registerCurrentSession, clearDeviceToken } from '@/lib/sessionTracker';
+import { startSessionRevocationWatcher, stopSessionRevocationWatcher } from '@/lib/sessionRevocationWatcher';
+import { removeCurrentDeviceToken } from '@/lib/push/registerPush';
+
+interface AuthContextType {
+  user: User | null;
+  session: Session | null;
+  loading: boolean;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  const syncRealtimeAuth = (currentSession: Session | null) => {
+    supabase.realtime.setAuth(currentSession?.access_token ?? null);
+  };
+
+  useEffect(() => {
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        syncRealtimeAuth(session);
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+
+        // Register current device session whenever auth state changes to signed-in
+        if (session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+          setTimeout(() => {
+            registerCurrentSession();
+            startSessionRevocationWatcher(session.user.id);
+          }, 0);
+        }
+
+        if (event === 'SIGNED_OUT') {
+          stopSessionRevocationWatcher();
+        }
+      }
+    );
+
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      syncRealtimeAuth(session);
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+      if (session?.user) {
+        setTimeout(() => {
+          registerCurrentSession();
+          startSessionRevocationWatcher(session.user.id);
+        }, 0);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      stopSessionRevocationWatcher();
+    };
+  }, []);
+
+  const signOut = async () => {
+    stopSessionRevocationWatcher();
+    clearDeviceToken();
+    // Detach this device's push token while the session is still valid —
+    // after signOut the row is no longer writable by this client.
+    await removeCurrentDeviceToken(user?.id).catch(() => undefined);
+    await supabase.auth.signOut();
+    navigate('/auth');
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, session, loading, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};

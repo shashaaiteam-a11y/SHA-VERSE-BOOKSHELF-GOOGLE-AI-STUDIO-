@@ -1,11 +1,23 @@
-<div align="center">
+# SHA-VERSE
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+SHA-VERSE is a unified AI-powered social ecosystem.
 
-  <h1>Built with AI Studio</h2>
+## Modules
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+- Home Feed
+- Movion (Video Platform)
+- NovaChat (AI Chat)
+- Bookshelf
+- Groups
+- Profile System
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+## Tech Stack
 
-</div>
+- React + TypeScript
+- Supabase (Auth, Database, Realtime)
+- GitHub (Version Control)
+
+## Local Setup
+
+npm install
+npm run dev

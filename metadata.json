@@ -1,0 +1,7 @@
+{
+  "name": "Bookshelf: Digital Reader & Publishing",
+  "description": "Read, publish, and explore digital books, EPUBs, PDFs, author channels, annotations, and community reviews.",
+  "request_frame_permission": false,
+  "capabilities": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

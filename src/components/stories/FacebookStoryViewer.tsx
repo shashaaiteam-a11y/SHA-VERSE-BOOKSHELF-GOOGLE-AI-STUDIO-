@@ -1,0 +1,993 @@
+import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction, type SyntheticEvent } from "react";
+import { createPortal } from "react-dom";
+import { X, ChevronLeft, ChevronRight, Pause, Play, Trash2, Eye, Heart, Send, MessageCircle } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { StoryGroup, StoryView, StoryReaction, StoryReply } from "@/hooks/useStories";
+import { useStories } from "@/hooks/useStories";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { formatDistanceToNow } from "date-fns";
+import { cn } from "@/lib/utils";
+import { NativeAdSlot } from "@/components/ads";
+import { isNativeAdsSupported } from "@/lib/ads/native/bridge";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+
+interface FacebookStoryViewerProps {
+  storyGroup: StoryGroup;
+  allGroups: StoryGroup[];
+  onClose: () => void;
+  onGroupChange: (group: StoryGroup) => void;
+  onStoryCompleted: () => number;
+}
+
+const REACTIONS = ["❤️", "😂", "😮", "😢", "😡", "🔥"];
+
+// Auto-linkify URLs in plain text (Facebook-style blue link, opens in new tab)
+const URL_REGEX = /(\b(?:https?:\/\/|www\.)[^\s<]+[^\s<.,!?:;'")\]])/gi;
+const LinkifiedText = ({ text }: { text: string }) => {
+  const parts = text.split(URL_REGEX);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (i % 2 === 1) {
+          const href = part.startsWith('http') ? part : `https://${part}`;
+          return (
+            <a
+              key={i}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-[#3b82f6] underline break-all hover:opacity-80"
+            >
+              {part}
+            </a>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+};
+
+const FacebookStoryViewer = ({
+  storyGroup,
+  allGroups,
+  onClose,
+  onGroupChange,
+  onStoryCompleted,
+}: FacebookStoryViewerProps) => {
+  const { user } = useAuth();
+  const { viewStory, deleteStory, reactToStory, replyToStory, getStoryViewers, getStoryReactions, getStoryReplies } = useStories();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [mediaLoaded, setMediaLoaded] = useState(false);
+  const [mediaDuration, setMediaDuration] = useState<number>(5000);
+  const [mediaError, setMediaError] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [showReactions, setShowReactions] = useState(false);
+  const [viewers, setViewers] = useState<StoryView[]>([]);
+  const [reactions, setReactions] = useState<StoryReaction[]>([]);
+  const [liveReactionCount, setLiveReactionCount] = useState(0);
+  const [replies, setReplies] = useState<StoryReply[]>([]);
+  const [showViewers, setShowViewers] = useState(false);
+  const [liveViewCount, setLiveViewCount] = useState(0);
+  const [showSponsoredStory, setShowSponsoredStory] = useState(false);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const progressRef = useRef<NodeJS.Timeout | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const isPausedRef = useRef(isPaused);
+  // Remember pause state at the moment the viewers sheet was opened, so closing restores it.
+  const wasPausedBeforeViewersRef = useRef(false);
+  // Swipe-down-to-close gesture state (WhatsApp Status style)
+  const [dragY, setDragY] = useState(0);
+  const dragStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const isDraggingRef = useRef(false);
+
+  const handleSwipeStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    dragStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now() };
+    isDraggingRef.current = false;
+  }, []);
+
+  const handleSwipeMove = useCallback((e: React.TouchEvent) => {
+    if (!dragStartRef.current || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const dy = t.clientY - dragStartRef.current.y;
+    const dx = Math.abs(t.clientX - dragStartRef.current.x);
+    if (!isDraggingRef.current) {
+      if (dy > 10 && dy > dx) {
+        isDraggingRef.current = true;
+      } else {
+        return;
+      }
+    }
+    if (dy > 0) setDragY(dy);
+  }, []);
+
+  const handleSwipeEnd = useCallback(() => {
+    if (!dragStartRef.current) return;
+    const elapsed = Date.now() - dragStartRef.current.time;
+    const velocity = dragY / Math.max(elapsed, 1);
+    dragStartRef.current = null;
+    isDraggingRef.current = false;
+    if (dragY > 80 || velocity > 0.5) {
+      setDragY(window.innerHeight);
+      setTimeout(() => onClose(), 180);
+    } else {
+      setDragY(0);
+    }
+  }, [dragY, onClose]);
+
+  const currentStory = storyGroup.stories[currentIndex];
+  const isOwnStory = storyGroup.user.id === user?.id;
+  const currentGroupIndex = allGroups.findIndex(g => g.user.id === storyGroup.user.id);
+
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
+
+  useEffect(() => {
+    setLiveViewCount(currentStory?.views_count || 0);
+  }, [currentStory?.id, currentStory?.views_count]);
+
+  // Lock body scroll when story viewer is open (like Facebook)
+  useEffect(() => {
+    const scrollY = window.scrollY;
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+
+  // Load viewers and reactions for own stories
+  useEffect(() => {
+    if (isOwnStory && currentStory) {
+      getStoryViewers(currentStory.id).then((latestViewers) => {
+        setViewers(latestViewers);
+        setLiveViewCount(latestViewers.length);
+      }).catch(console.error);
+      getStoryReactions(currentStory.id).then((latestReactions) => {
+        setReactions(latestReactions);
+        setLiveReactionCount(latestReactions.length);
+      }).catch(console.error);
+    }
+  }, [currentStory?.id, isOwnStory]);
+
+  // Clear all timers
+  const clearTimers = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (progressRef.current) {
+      clearInterval(progressRef.current);
+      progressRef.current = null;
+    }
+  }, []);
+
+  // Start progress and timer
+  const startTimer = useCallback(() => {
+    clearTimers();
+
+    const duration = mediaDuration;
+    const startTime = Date.now();
+
+    progressRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const newProgress = (elapsed / duration) * 100;
+      setProgress(Math.min(newProgress, 100));
+    }, 50);
+
+    // Only set auto-advance timer for non-video content
+    // Videos will advance on "ended" event to prevent premature skipping
+    if (currentStory?.media_type !== 'video') {
+      timerRef.current = setTimeout(() => {
+        goToNext();
+      }, duration);
+    }
+  }, [mediaDuration, clearTimers, currentStory?.media_type]);
+
+  // Handle story change
+  useEffect(() => {
+    setProgress(0);
+    setMediaLoaded(false);
+    setMediaError(false);
+    setMediaDuration(currentStory?.story_type === 'text' ? 5000 : 5000);
+    clearTimers();
+
+    // Mark story as viewed
+    if (currentStory && !isOwnStory) {
+      viewStory.mutate(currentStory.id);
+    }
+  }, [currentIndex, currentStory?.id]);
+
+  // Handle pause/resume
+  useEffect(() => {
+    if (!mediaLoaded || isPaused) {
+      clearTimers();
+      if (videoRef.current && isPaused) {
+        videoRef.current.pause();
+      }
+    } else {
+      if (videoRef.current && currentStory?.media_type === 'video') {
+        videoRef.current.play().catch(console.error);
+      }
+      startTimer();
+    }
+
+    return clearTimers;
+  }, [mediaLoaded, isPaused, startTimer, clearTimers, currentStory?.media_type]);
+
+  const handleVideoLoadedMetadata = () => {
+    if (videoRef.current) {
+      const duration = videoRef.current.duration;
+      if (duration && isFinite(duration) && duration > 0) {
+        // Support videos up to 5 hours - use actual duration for playback
+        // Max duration is 5 hours (18000 seconds)
+        const maxDuration = 5 * 60 * 60 * 1000; // 5 hours in ms
+        setMediaDuration(Math.min(duration * 1000, maxDuration));
+      }
+    }
+    setMediaLoaded(true);
+  };
+
+  const handleVideoCanPlay = () => {
+    if (!mediaLoaded && videoRef.current) {
+      const duration = videoRef.current.duration;
+      if (duration && isFinite(duration) && duration > 0) {
+        // Support long videos up to 5 hours
+        const maxDuration = 5 * 60 * 60 * 1000; // 5 hours in ms
+        setMediaDuration(Math.min(duration * 1000, maxDuration));
+      }
+      setMediaLoaded(true);
+    }
+  };
+
+  const handleImageLoaded = () => {
+    setMediaDuration(5000);
+    setMediaLoaded(true);
+  };
+
+  const handleTextStoryLoaded = useCallback(() => {
+    setMediaDuration(5000);
+    setMediaLoaded(true);
+  }, []);
+
+  // Auto-load for text stories - check both story_type and media_type for robustness
+  useEffect(() => {
+    if (currentStory?.story_type === 'text' || currentStory?.media_type === 'text') {
+      handleTextStoryLoaded();
+    }
+  }, [currentStory?.story_type, currentStory?.media_type, handleTextStoryLoaded]);
+
+  // Handle stories with no media_url (missing media) - show for 5 seconds then advance
+  useEffect(() => {
+    const isMediaStory = currentStory?.story_type !== 'text' && currentStory?.media_type !== 'text';
+    const hasNoMedia = !currentStory?.media_url;
+
+    if (isMediaStory && hasNoMedia && !mediaLoaded) {
+      setMediaDuration(5000);
+      setMediaLoaded(true);
+    }
+  }, [currentStory?.story_type, currentStory?.media_type, currentStory?.media_url, mediaLoaded]);
+
+  const handleMediaError = () => {
+    console.error("Media load error");
+    setMediaError(true);
+    setMediaLoaded(true);
+    // Keep showing error for 10 seconds so user can see the message
+    setMediaDuration(10000);
+  };
+
+  const goToPrevious = () => {
+    if (showSponsoredStory) {
+      setShowSponsoredStory(false);
+      return;
+    }
+    if (currentIndex > 0) {
+      setCurrentIndex((prev) => prev - 1);
+    } else if (currentGroupIndex > 0) {
+      // Go to previous user's stories
+      onGroupChange(allGroups[currentGroupIndex - 1]);
+    }
+  };
+
+  const advanceToNextStory = () => {
+    setShowSponsoredStory(false);
+    setIsPaused(false);
+    if (currentIndex < storyGroup.stories.length - 1) {
+      setCurrentIndex((prev) => prev + 1);
+    } else if (currentGroupIndex < allGroups.length - 1) {
+      // Go to next user's stories
+      onGroupChange(allGroups[currentGroupIndex + 1]);
+    } else {
+      onClose();
+    }
+  };
+
+  const goToNext = () => {
+    if (!showSponsoredStory) {
+      const completedCount = onStoryCompleted();
+      if (isNativeAdsSupported() && completedCount % 3 === 0) {
+        clearTimers();
+        setIsPaused(true);
+        setShowSponsoredStory(true);
+        return;
+      }
+    }
+    advanceToNextStory();
+  };
+
+  const handleDeleteStory = async () => {
+    await deleteStory.mutateAsync(currentStory.id);
+    if (storyGroup.stories.length === 1) {
+      onClose();
+    } else {
+      goToNext();
+    }
+  };
+
+  // Rapid-click guards (Facebook-style idempotency)
+  const lastReactionRef = useRef<{ key: string; at: number } | null>(null);
+  const lastReplyRef = useRef<{ key: string; at: number } | null>(null);
+
+  const handleReaction = async (reaction: string) => {
+    const now = Date.now();
+    const key = `${currentStory.id}:${reaction}`;
+    // Throttle: same reaction within 300ms = ignore; any reaction on this story within 300ms = ignore
+    if (lastReactionRef.current && now - lastReactionRef.current.at < 300) return;
+    lastReactionRef.current = { key, at: now };
+    if (reactToStory.isPending) return;
+    try {
+      await reactToStory.mutateAsync({
+        storyId: currentStory.id,
+        reactionType: reaction,
+      });
+    } finally {
+      setShowReactions(false);
+    }
+  };
+
+  const handleReply = async () => {
+    const trimmed = replyText.trim();
+    if (!trimmed) return;
+    if (replyToStory.isPending) return;
+    const now = Date.now();
+    const key = `${currentStory.id}:${trimmed}`;
+    // Idempotency: same text on same story within 2s = drop
+    if (lastReplyRef.current && lastReplyRef.current.key === key && now - lastReplyRef.current.at < 2000) {
+      return;
+    }
+    lastReplyRef.current = { key, at: now };
+    setReplyText("");
+    try {
+      await replyToStory.mutateAsync({
+        storyId: currentStory.id,
+        recipientId: storyGroup.user.id,
+        message: trimmed,
+      });
+    } catch (err) {
+      // Restore text on failure so user can retry
+      setReplyText(trimmed);
+      lastReplyRef.current = null;
+      throw err;
+    }
+  };
+
+  const togglePause = () => {
+    setIsPaused(!isPaused);
+  };
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !videoRef.current.muted;
+    }
+  };
+
+  // Refresh viewers + reactions + replies on demand (called when opening viewers sheet)
+  const refreshViewersAndReactions = useCallback(async () => {
+    if (!isOwnStory || !currentStory) return;
+
+    try {
+      const [latestViewers, latestReactions, latestReplies] = await Promise.all([
+        getStoryViewers(currentStory.id),
+        getStoryReactions(currentStory.id),
+        getStoryReplies(currentStory.id),
+      ]);
+      setViewers(latestViewers);
+      setLiveViewCount(latestViewers.length);
+      setReactions(latestReactions);
+      setLiveReactionCount(latestReactions.length);
+      setReplies(latestReplies);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [isOwnStory, currentStory?.id, getStoryViewers, getStoryReactions, getStoryReplies]);
+
+  // Auto-refresh viewers list every 5s while own story is open (realtime fallback)
+  useEffect(() => {
+    if (!isOwnStory || !currentStory) return;
+    const interval = setInterval(() => {
+      refreshViewersAndReactions();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isOwnStory, currentStory?.id, refreshViewersAndReactions]);
+
+  // Open viewers — auto-pause story while sheet is open (Facebook/Instagram behavior).
+  const handleOpenViewers = useCallback((event?: SyntheticEvent<HTMLElement>) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    wasPausedBeforeViewersRef.current = isPausedRef.current;
+    setIsPaused(true);
+    if (videoRef.current && currentStory?.media_type === 'video') {
+      videoRef.current.pause();
+    }
+    setShowViewers(true);
+    void refreshViewersAndReactions();
+  }, [currentStory?.media_type, refreshViewersAndReactions]);
+
+  // Resume story when viewers sheet closes (unless user had paused manually before opening it).
+  const handleViewersOpenChange = useCallback((open: boolean) => {
+    setShowViewers(open);
+    if (!open) {
+      const shouldResume = !wasPausedBeforeViewersRef.current;
+      if (shouldResume) {
+        setIsPaused(false);
+        if (videoRef.current && currentStory?.media_type === 'video') {
+          videoRef.current.play().catch(console.error);
+        }
+      }
+    }
+  }, [currentStory?.media_type]);
+
+  // Keep latest refresh fn in a ref so the realtime channel doesn't re-subscribe
+  // every render (which would drop events). Functions returned from useStories()
+  // get fresh refs each render, so we cannot use them as effect deps.
+  const refreshRef = useRef(refreshViewersAndReactions);
+  useEffect(() => {
+    refreshRef.current = refreshViewersAndReactions;
+  }, [refreshViewersAndReactions]);
+
+  // True realtime updates while the story is open; polling above remains a fallback.
+  useEffect(() => {
+    if (!currentStory?.id) return;
+    const storyId = currentStory.id;
+
+    const applyCountDelta = (
+      eventType: "INSERT" | "UPDATE" | "DELETE",
+      setter: Dispatch<SetStateAction<number>>
+    ) => {
+      if (eventType === 'INSERT') setter((count) => count + 1);
+      if (eventType === 'DELETE') setter((count) => Math.max(0, count - 1));
+    };
+
+    const channel = supabase
+      .channel(`story-insights-${storyId}-${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'story_views',
+        filter: `story_id=eq.${storyId}`,
+      }, (payload) => {
+        if (isOwnStory) {
+          applyCountDelta(payload.eventType, setLiveViewCount);
+          void refreshRef.current?.();
+        } else if (payload.eventType === 'INSERT') {
+          setLiveViewCount((count) => count + 1);
+        }
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'story_reactions',
+        filter: `story_id=eq.${storyId}`,
+      }, (payload) => {
+        if (isOwnStory) {
+          applyCountDelta(payload.eventType, setLiveReactionCount);
+          void refreshRef.current?.();
+        }
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'stories',
+        filter: `id=eq.${storyId}`,
+      }, (payload) => {
+        const nextViewCount = (payload.new as { views_count?: number } | null)?.views_count;
+        if (typeof nextViewCount === 'number') setLiveViewCount(nextViewCount);
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'story_replies',
+        filter: `story_id=eq.${storyId}`,
+      }, () => {
+        if (isOwnStory) void refreshRef.current?.();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isOwnStory, currentStory?.id]);
+
+  if (!currentStory) {
+    return null;
+  }
+
+  const viewer = (
+    <div
+      className="fixed inset-0 z-[200] bg-black flex items-center justify-center overflow-hidden"
+      style={{
+        transform: dragY > 0 ? `translateY(${dragY}px)` : undefined,
+        opacity: dragY > 0 ? Math.max(1 - dragY / (window.innerHeight * 0.8), 0) : 1,
+        transition: dragStartRef.current ? 'none' : 'transform 180ms ease-out, opacity 180ms ease-out',
+        touchAction: 'pan-y',
+      }}
+      onTouchStart={handleSwipeStart}
+      onTouchMove={handleSwipeMove}
+      onTouchEnd={handleSwipeEnd}
+      onTouchCancel={handleSwipeEnd}
+    >
+      {/* Previous user indicator */}
+      {currentGroupIndex > 0 && (
+        <div
+          className="absolute left-4 top-1/2 -translate-y-1/2 cursor-pointer z-40 hidden md:block"
+          onClick={() => onGroupChange(allGroups[currentGroupIndex - 1])}
+        >
+          <Avatar className="w-12 h-12 border-2 border-white/50 opacity-60 hover:opacity-100 transition-opacity">
+            <AvatarImage src={allGroups[currentGroupIndex - 1].user.avatar_url || ""} />
+            <AvatarFallback>
+              {allGroups[currentGroupIndex - 1].user.display_name.charAt(0)}
+            </AvatarFallback>
+          </Avatar>
+        </div>
+      )}
+
+      {/* Next user indicator */}
+      {currentGroupIndex < allGroups.length - 1 && (
+        <div
+          className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer z-40 hidden md:block"
+          onClick={() => onGroupChange(allGroups[currentGroupIndex + 1])}
+        >
+          <Avatar className="w-12 h-12 border-2 border-white/50 opacity-60 hover:opacity-100 transition-opacity">
+            <AvatarImage src={allGroups[currentGroupIndex + 1].user.avatar_url || ""} />
+            <AvatarFallback>
+              {allGroups[currentGroupIndex + 1].user.display_name.charAt(0)}
+            </AvatarFallback>
+          </Avatar>
+        </div>
+      )}
+
+      {/* Story container - Fullscreen on mobile, 9:16 on desktop/tablet to match Facebook style */}
+      <div className="relative w-full h-[100dvh] md:w-auto md:h-[95vh] md:aspect-[9/16] mx-auto flex flex-col bg-black overflow-hidden rounded-none md:rounded-xl shadow-2xl">
+        {/* Progress bars - pushed below status bar / notch */}
+        {!showSponsoredStory && (
+        <div
+          className="absolute left-4 right-4 z-40 flex gap-1"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
+        >
+          {storyGroup.stories.map((_, index) => (
+            <div
+              key={index}
+              className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden"
+            >
+              <div
+                className="h-full bg-white transition-all"
+                style={{
+                  width:
+                    index < currentIndex
+                      ? "100%"
+                      : index === currentIndex
+                        ? `${progress}%`
+                        : "0%",
+                  transitionDuration: index === currentIndex ? "50ms" : "0ms"
+                }}
+              />
+            </div>
+          ))}
+        </div>
+        )}
+
+        {/* Close button - pushed below status bar / notch (safe-area aware) */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-2 text-white hover:bg-white/20 z-50 h-10 w-10 rounded-full bg-black/40"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 1.75rem)' }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+          }}
+          aria-label="Close story"
+        >
+          <X className="w-6 h-6" />
+        </Button>
+
+        {/* User info - leaves right padding so it never overlaps the close button */}
+        {!showSponsoredStory && (
+        <div
+          className="absolute left-4 right-14 z-40 flex items-center gap-3"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 2.25rem)' }}
+        >
+          <Avatar className="w-10 h-10 border-2 border-white">
+            <AvatarImage src={storyGroup.user.avatar_url || ""} />
+            <AvatarFallback>
+              {storyGroup.user.display_name.charAt(0)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <p className="text-white font-semibold text-sm truncate">
+              {storyGroup.user.display_name}
+            </p>
+            <p className="text-white/70 text-xs">
+              {formatDistanceToNow(new Date(currentStory.created_at), {
+                addSuffix: true,
+              })}
+            </p>
+          </div>
+        </div>
+        )}
+
+        {/* Action icons row - placed BELOW user info with clear separation from close button */}
+        {!showSponsoredStory && <div
+          className="absolute right-2 z-50 flex items-center gap-1 bg-black/30 rounded-full px-1 py-1 backdrop-blur-sm pointer-events-auto"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 5rem)' }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20 h-9 w-9 rounded-full"
+            onClick={togglePause}
+            aria-label={isPaused ? "Play" : "Pause"}
+          >
+            {isPaused ? (
+              <Play className="w-4 h-4" />
+            ) : (
+              <Pause className="w-4 h-4" />
+            )}
+          </Button>
+          {isOwnStory && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white hover:bg-white/20 h-9 w-9 rounded-full"
+              onClick={handleDeleteStory}
+              aria-label="Delete story"
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          )}
+        </div>}
+
+        {/* Story Insights Sheet — opens on bottom-left eye click; auto-pauses story */}
+        {isOwnStory && (
+          <Sheet open={showViewers} onOpenChange={handleViewersOpenChange}>
+            <SheetContent
+              side="bottom"
+              className="z-[260] h-[70vh] flex flex-col"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <SheetHeader>
+                <SheetTitle>Story Insights</SheetTitle>
+              </SheetHeader>
+              <Tabs defaultValue="viewers" className="mt-4 flex-1 flex flex-col min-h-0">
+                <TabsList className="grid grid-cols-3 w-full">
+                  <TabsTrigger value="viewers" className="gap-1.5">
+                    <Eye className="w-4 h-4" />
+                    <span>{liveViewCount}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="reactions" className="gap-1.5">
+                    <Heart className="w-4 h-4" />
+                    <span>{liveReactionCount}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="replies" className="gap-1.5">
+                    <MessageCircle className="w-4 h-4" />
+                    <span>{replies.length}</span>
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="viewers" className="mt-4 space-y-3 overflow-y-auto flex-1">
+                  {viewers.map((view) => (
+                    <div key={view.id} className="flex items-center gap-3">
+                      <Avatar>
+                        <AvatarImage src={view.viewer?.avatar_url || ""} />
+                        <AvatarFallback>
+                          {view.viewer?.display_name?.charAt(0) || "?"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1">
+                        <p className="font-medium">{view.viewer?.display_name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(view.viewed_at), { addSuffix: true })}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  {viewers.length === 0 && (
+                    <p className="text-muted-foreground text-center py-8">
+                      No one has viewed this story yet
+                    </p>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="reactions" className="mt-4 space-y-3 overflow-y-auto flex-1">
+                  {reactions.map((reaction) => (
+                    <div key={reaction.id} className="flex items-center gap-3">
+                      <Avatar>
+                        <AvatarImage src={reaction.user?.avatar_url || ""} />
+                        <AvatarFallback>
+                          {reaction.user?.display_name?.charAt(0) || "?"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1">
+                        <p className="font-medium">{reaction.user?.display_name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(reaction.created_at), { addSuffix: true })}
+                        </p>
+                      </div>
+                      <span className="text-2xl">{reaction.reaction_type}</span>
+                    </div>
+                  ))}
+                  {reactions.length === 0 && (
+                    <p className="text-muted-foreground text-center py-8">
+                      No reactions yet
+                    </p>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="replies" className="mt-4 space-y-3 overflow-y-auto flex-1">
+                  {replies.map((reply) => (
+                    <div key={reply.id} className="flex items-start gap-3">
+                      <Avatar>
+                        <AvatarImage src={reply.sender?.avatar_url || ""} />
+                        <AvatarFallback>
+                          {reply.sender?.display_name?.charAt(0) || "?"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium truncate">{reply.sender?.display_name}</p>
+                          <p className="text-xs text-muted-foreground shrink-0">
+                            {formatDistanceToNow(new Date(reply.created_at), { addSuffix: true })}
+                          </p>
+                        </div>
+                        <p className="text-sm break-words whitespace-pre-wrap"><LinkifiedText text={reply.message} /></p>
+                      </div>
+                    </div>
+                  ))}
+                  {replies.length === 0 && (
+                    <p className="text-muted-foreground text-center py-8">
+                      No replies yet
+                    </p>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </SheetContent>
+          </Sheet>
+        )}
+
+        {showSponsoredStory ? (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-6 px-5 pt-24 pb-8">
+            <div className="w-full max-w-sm" onClick={(event) => event.stopPropagation()}>
+              <NativeAdSlot
+                placement="HF_STORY_02"
+                slotKey={`viewer-after-${currentStory.id}`}
+                height={420}
+                onStateChange={(state) => {
+                  if (state === "failed") advanceToNextStory();
+                }}
+              />
+            </div>
+            <Button
+              variant="secondary"
+              className="min-h-11 min-w-32"
+              onClick={(event) => {
+                event.stopPropagation();
+                goToNext();
+              }}
+            >
+              Continue
+            </Button>
+          </div>
+        ) : (
+        <>
+        {/* Loading indicator */}
+        {!mediaLoaded && !mediaError && currentStory.story_type !== 'text' && currentStory.media_type !== 'text' && (
+          <div className="absolute inset-0 flex items-center justify-center z-30">
+            <div className="w-10 h-10 border-3 border-white border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
+        {/* Story content - fullscreen 9:16 display */}
+        <div className="w-full h-full flex items-center justify-center overflow-hidden">
+          {mediaError ? (
+            <div className="w-full h-full flex flex-col items-center justify-center text-white text-center p-8 bg-gradient-to-b from-gray-800 to-gray-900">
+              <p className="text-lg mb-2">Unable to load media</p>
+              <p className="text-sm text-white/70 mb-4">The story content could not be displayed</p>
+              <p className="text-xs text-white/50">Tap right to go to next story</p>
+            </div>
+          ) : (currentStory.story_type === "text" || currentStory.media_type === "text") ? (
+            <div
+              className="w-full h-full flex items-center justify-center p-8"
+              style={{ background: currentStory.background_color || "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}
+            >
+              <p className="text-white text-2xl font-semibold text-center">
+                {currentStory.text_content}
+              </p>
+            </div>
+          ) : currentStory.media_type === "video" && currentStory.media_url ? (
+            <video
+              ref={videoRef}
+              key={currentStory.id}
+              src={currentStory.media_url}
+              className="w-full h-full object-contain bg-black"
+              autoPlay
+              playsInline
+              muted={true} // Start muted to ensure autoplay works on all browsers
+              onLoadedMetadata={handleVideoLoadedMetadata}
+              onCanPlay={handleVideoCanPlay}
+              onError={handleMediaError}
+              onEnded={goToNext}
+            />
+          ) : currentStory.media_url ? (
+            <img
+              key={currentStory.id}
+              src={currentStory.media_url}
+              alt=""
+              className="w-full h-full object-contain bg-black"
+              onLoad={handleImageLoaded}
+              onError={handleMediaError}
+            />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center text-white text-center p-8 bg-gradient-to-b from-gray-800 to-gray-900">
+              <p className="text-lg mb-2">No media available</p>
+              <p className="text-sm text-white/70">Tap right to go to next story</p>
+            </div>
+          )}
+        </div>
+
+        {/* Caption */}
+        {currentStory.caption && currentStory.story_type !== "text" && (
+          <div className="absolute bottom-20 left-4 right-4 z-40">
+            <p className="text-white text-center bg-black/50 rounded-lg px-4 py-2">
+              {currentStory.caption}
+            </p>
+          </div>
+        )}
+
+        {/* Muted Hint for Video */}
+        {currentStory.media_type === "video" && !isPaused && (
+          <div
+            className="absolute top-20 right-4 z-40 bg-black/50 rounded-full p-2 cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleMute();
+            }}
+          >
+            {/* Simple speaker icon could go here or just rely on user tapping */}
+            <span className="text-xs text-white font-medium px-2">Tap to unmute</span>
+          </div>
+        )}
+
+        {/* Navigation areas */}
+        <div
+          className="absolute left-0 top-0 bottom-20 w-1/3 z-30 cursor-pointer"
+          onClick={goToPrevious}
+        />
+        <div
+          className="absolute right-0 top-0 bottom-20 w-1/3 z-30 cursor-pointer"
+          onClick={goToNext}
+        />
+
+        {/* Reply/React section for others' stories */}
+        {!isOwnStory && (
+          <div
+            className="absolute left-4 right-4 z-40 flex items-center gap-2"
+            style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
+          >
+            <div className="relative flex-1">
+              <Input
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder="Reply to story..."
+                className="bg-white/20 border-none text-white placeholder:text-white/70 pr-10"
+                disabled={replyToStory.isPending}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (!replyToStory.isPending) handleReply();
+                  }
+                }}
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-white h-8 w-8"
+                onClick={handleReply}
+                disabled={!replyText.trim() || replyToStory.isPending}
+              >
+                <Send className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {/* Reactions */}
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-white hover:bg-white/20"
+                onClick={() => setShowReactions(!showReactions)}
+              >
+                <Heart className="w-5 h-5" />
+              </Button>
+
+              {showReactions && (
+                <div className="absolute bottom-full right-0 mb-2 bg-background rounded-full px-2 py-1 flex gap-1 shadow-lg">
+                  {REACTIONS.map((reaction) => (
+                    <button
+                      key={reaction}
+                      className="text-xl hover:scale-125 transition-transform p-1 disabled:opacity-50"
+                      onClick={() => handleReaction(reaction)}
+                      disabled={reactToStory.isPending}
+                    >
+                      {reaction}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* View count for own stories - clickable to open viewers sheet */}
+        {isOwnStory && (
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={handleOpenViewers}
+            className="absolute left-4 z-50 flex items-center gap-2 text-white bg-black/40 hover:bg-black/60 active:bg-black/70 rounded-full px-3 py-1.5 transition-colors pointer-events-auto"
+            style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
+            aria-label="View story viewers"
+          >
+            <Eye className="w-5 h-5" />
+            <span className="text-sm font-medium">{liveViewCount} views</span>
+          </button>
+        )}
+        </>
+        )}
+      </div>
+    </div>
+  );
+
+  return typeof document !== "undefined" ? createPortal(viewer, document.body) : viewer;
+};
+
+export default FacebookStoryViewer;

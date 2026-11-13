@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>SHA-VERSE: The Next Generation</title>
+    <meta
+      name="description"
+      content="Experience the future of social networking with AI-powered conversations, immersive videos, digital books, and vibrant communities—all in one ecosystem."
+    />
+    <meta name="author" content="Sha-Verse" />
+
+    <!-- Mobile App Meta Tags -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Sha-Verse" />
+    <meta name="application-name" content="Sha-Verse" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="theme-color" content="#2563eb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1e3a8a" media="(prefers-color-scheme: dark)" />
+    <meta name="msapplication-TileColor" content="#2563eb" />
+    <meta name="msapplication-tap-highlight" content="no" />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,200..900;1,7..72,200..900&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png" />
+
+    <!-- Splash Screens for iOS -->
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash-640x1136.png"
+      media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash-750x1334.png"
+      media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash-1242x2208.png"
+      media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash-1125x2436.png"
+      media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash-1536x2048.png"
+      media="(min-device-width: 768px) and (max-device-width: 1024px) and (-webkit-device-pixel-ratio: 2)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash-1668x2224.png"
+      media="(min-device-width: 834px) and (max-device-width: 834px) and (-webkit-device-pixel-ratio: 2)"
+    />
+    <link
+      rel="apple-touch-startup-image"
+      href="/icons/splash-2048x2732.png"
+      media="(min-device-width: 1024px) and (max-device-width: 1024px) and (-webkit-device-pixel-ratio: 2)"
+    />
+
+    <!-- Open Graph (sitewide fallback for non-JS social crawlers; per-route Helmet overrides these for JS crawlers) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Sha-Verse" />
+    <meta property="og:url" content="https://www.sha-verse.com/" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Sitewide structured data -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "@id": "https://www.sha-verse.com/#organization",
+        "name": "SHA-VERSE",
+        "alternateName": ["Sha-Verse", "ShaVerse", "Sha Verse"],
+        "url": "https://www.sha-verse.com",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://www.sha-verse.com/icons/icon-512x512.png",
+          "width": 512,
+          "height": 512
+        },
+        "image": "https://www.sha-verse.com/icons/icon-512x512.png",
+        "description": "SHA-VERSE is an independent technology company building a next-generation social ecosystem that integrates social networking, artificial intelligence, video sharing, digital publishing, communities, and creator tools into one unified platform. SHA-VERSE is not affiliated with, associated with, or connected to any other project, application, website, or organization using a similar name.",
+        "slogan": "Your Social Universe",
+        "email": "hello@sha-verse.com",
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "email": "hello@sha-verse.com",
+          "contactType": "customer support",
+          "availableLanguage": ["English"]
+        },
+        "brand": {
+          "@id": "https://www.sha-verse.com/#brand"
+        },
+        "knowsAbout": [
+          "Social networking",
+          "Video sharing",
+          "Artificial intelligence",
+          "Digital publishing and ebooks",
+          "Online communities",
+          "Creator tools"
+        ],
+        "areaServed": "Worldwide",
+        "keywords": "SHA-VERSE, Sha-Verse, SHA-VERSE company, shaverse, SHAVERSE, nova chat, novachat, facebook, instagram, fb, insta, chat gpt, chatgpt, gemini, gamini, grok, claud, clod, movion, profile, next gen, cjp,  social ecosystem, social networking platform, AI assistant, video sharing, digital publishing, online communities, creator tools, social universe"
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Brand",
+        "@id": "https://www.sha-verse.com/#brand",
+        "name": "SHA-VERSE",
+        "alternateName": ["Sha-Verse", "ShaVerse", "Sha Verse"],
+        "url": "https://www.sha-verse.com",
+        "logo": "https://www.sha-verse.com/icons/icon-512x512.png",
+        "slogan": "Your Social Universe",
+        "description": "SHA-VERSE is the brand of an independent technology company and unified social ecosystem, distinct and unaffiliated from any other similarly named project or organization."
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "@id": "https://www.sha-verse.com/#website",
+        "name": "SHA-VERSE",
+        "alternateName": ["Sha-Verse", "ShaVerse"],
+        "url": "https://www.sha-verse.com",
+        "description": "SHA-VERSE is an independent technology company and unified social ecosystem — one platform for social networking, AI, video, digital publishing, and communities.",
+        "inLanguage": "en",
+        "publisher": {
+          "@id": "https://www.sha-verse.com/#organization"
+        }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "@id": "https://www.sha-verse.com/#webapp",
+        "name": "SHA-VERSE",
+        "alternateName": ["Sha-Verse", "ShaVerse"],
+        "url": "https://www.sha-verse.com",
+        "applicationCategory": "SocialNetworkingApplication",
+        "operatingSystem": "Web, Android, iOS",
+        "browserRequirements": "Requires a modern web browser with JavaScript enabled",
+        "description": "SHA-VERSE is an official software platform that unifies a social feed, Movion videos, NovaChat AI assistant, a Bookshelf EPUB/PDF reader, and communities in one mobile-first app.",
+        "featureList": [
+          "Social feed with posts, photos, polls and reactions",
+          "Movion long-form videos and short reels",
+          "NovaChat AI assistant",
+          "Bookshelf EPUB and PDF reader",
+          "Groups and Pages communities",
+          "Real-time messaging"
+        ],
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "publisher": {
+          "@id": "https://www.sha-verse.com/#organization"
+        }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "@id": "https://www.sha-verse.com/#software",
+        "name": "SHA-VERSE",
+        "alternateName": ["Sha-Verse", "ShaVerse"],
+        "url": "https://www.sha-verse.com",
+        "applicationCategory": "SocialNetworkingApplication",
+        "operatingSystem": "Web, Android, iOS",
+        "description": "SHA-VERSE software combines a social feed, videos, AI assistant, ebook reader, and communities into a single cross-platform application.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "publisher": {
+          "@id": "https://www.sha-verse.com/#organization"
+        }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "MobileApplication",
+        "@id": "https://www.sha-verse.com/#mobileapp",
+        "name": "SHA-VERSE",
+        "alternateName": ["Sha-Verse", "ShaVerse"],
+        "url": "https://www.sha-verse.com",
+        "applicationCategory": "SocialNetworkingApplication",
+        "operatingSystem": "Android, iOS",
+        "description": "The SHA-VERSE mobile app brings social networking, AI, video, reading, and communities together in one native mobile-first experience.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "publisher": {
+          "@id": "https://www.sha-verse.com/#organization"
+        }
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "@id": "https://www.sha-verse.com/#breadcrumb",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://www.sha-verse.com/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "About",
+            "item": "https://www.sha-verse.com/about"
+          },
+          {
+            "@type": "ListItem",
+            "position": 3,
+            "name": "Contact",
+            "item": "https://www.sha-verse.com/contact"
+          }
+        ]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "@id": "https://www.sha-verse.com/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is SHA-VERSE?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "SHA-VERSE is an independent technology company and unified social ecosystem — one platform that combines a social feed, Movion videos, the NovaChat AI assistant, a Bookshelf EPUB/PDF reader, and communities."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is SHA-VERSE related to other similarly named projects?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. SHA-VERSE is an independent company and software ecosystem. It is not affiliated with, associated with, or connected to any other project, application, website, or organization using a similar name."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Is SHA-VERSE free to use?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. SHA-VERSE is free. It is sustained through advertising, without paywalls or subscriptions."
+            }
+          }
+        ]
+      }
+    </script>
+
+    <meta
+      property="og:image"
+      content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fadb3ea4-d6ab-436b-ac14-4087fba5d4f6/id-preview-e9248023--b16b27b9-9c46-4630-8c45-b59b2b0e9094.lovable.app-1780405677509.png"
+    />
+    <meta
+      name="twitter:image"
+      content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fadb3ea4-d6ab-436b-ac14-4087fba5d4f6/id-preview-e9248023--b16b27b9-9c46-4630-8c45-b59b2b0e9094.lovable.app-1780405677509.png"
+    />
+
+    <meta property="og:title" content="SHA-VERSE | The Next Generation" />
+    <meta name="twitter:title" content="SHA-VERSE | The Next Generation" />
+    <meta
+      property="og:description"
+      content="Experience the future of social networking with AI-powered conversations, immersive videos, digital books, and vibrant communities—all in one ecosystem."
+    />
+    <meta
+      name="twitter:description"
+      content="Experience the future of social networking with AI-powered conversations, immersive videos, digital books, and vibrant communities—all in one ecosystem."
+    />
+  </head>
+
+  <body class="overscroll-none">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
